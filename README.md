@@ -14,7 +14,7 @@ This is still a relatively new project and the amount of information these files
 | `garmin_connectiq_knowledge_base.md` | Core SDK reference: device specs, API overview, permission table, drawing, input, manifest |
 | `garmin_developer_key_guide.md` | Generating and configuring the DER-format RSA key required for device deployment |
 | `garmin_development_addendum.md` | Practical workflow: manifest pitfalls, project structure, install/uninstall, simulator setup |
-| `garmin_sdk_sample_code_patterns.md` | Copy-paste code patterns extracted from SDK samples and real projects |
+| `connectiq_code_patterns.md` | Copy-paste code patterns and independently written templates for common tasks |
 | `monkeyc_analyzer_unreachable_statement_guide.md` | Root cause and permanent solutions for "Statement is not reachable" compiler warnings |
 | `venu3_practical_lessons.md` | Device-specific knowledge: data screen configuration, bezel constraints, layout guidelines |
 | `steps_and_time_development_lessons.md` | Data field: daily step count + time of day |
@@ -126,12 +126,38 @@ Copy the template below, replace the placeholder paths with your actual paths, a
 
 ## SDK Reference
 
-Always consult the SDK before writing code or making implementation decisions:
+Always consult the SDK before writing code or making implementation decisions.
 
 - **SDK root:** [PATH TO YOUR SDK INSTALLATION]
   Example (Windows): C:\Users\YourName\AppData\Roaming\Garmin\ConnectIQ\Sdks\connectiq-sdk-win-8.4.1-2026-02-03-e9f77eeaa
+
+### Option A — Standard SDK (raw HTML docs)
+
+If you are using the SDK documentation as-is:
+
 - **API docs:** [SDK root]\doc\Toybox\
 - **Sample apps:** [SDK root]\samples\
+
+### Option B — Consolidated SDK (recommended)
+
+If you have run the [SDK Consolidation Script](https://github.com/MJenkinsonGIT/SDKConsolidationScript)
+to convert the SDK docs to LLM-friendly Markdown:
+
+- **Consolidated SDK:** [SDK root]\Consolidated SDK\
+
+Use the following lookup order:
+
+1. **Knowledge base first** — contains confirmed device-specific lessons that take
+   precedence over everything else.
+2. **Consolidated SDK second** — read `[SDK root]\Consolidated SDK\INDEX.md` in full
+   before looking anything up. It contains a complete directory map, a
+   "How to use this reference" guide, and a "Key files for common tasks" table
+   that maps tasks directly to file paths. Use it to navigate to the right file
+   rather than guessing paths.
+3. **Original SDK raw HTML as last resort** — `[SDK root]\doc\Toybox\` — only if
+   the Consolidated SDK file is missing or incomplete for a specific topic.
+
+---
 
 Do not rely on general coding knowledge when the SDK or samples have the answer.
 Only fall back to general reasoning when the SDK documentation is silent on a topic.
