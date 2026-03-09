@@ -21,6 +21,8 @@ This index catalogs all knowledge base files in this repository. Each entry list
 | App list placement (Activities vs Apps vs Glances) | `customhrv_development_lessons.md` §11 |
 | Indoor steps/distance (ActivityMonitor baseline) | `consolidated_field_development_lessons.md` §7, §10 |
 | HR zone coloring (UserProfile API) | `timerhr_field_development_lessons.md` §1 |
+| DST-safe "today" boundary for activity history | `timerhr_field_development_lessons.md` §6 |
+| `ClockTime.dst` always 0 on real devices | `timerhr_field_development_lessons.md` §6 |
 | Swipe/tap input on Venu 3 touchscreen | `customhrv_development_lessons.md` §1–2 |
 | Beat-to-beat HRV intervals (ActivityRecording) | `hrv_logger_development_lessons.md` §5 |
 | Glance view styling, AMOLED color calibration | `skin_temp_widget_development_lessons.md` §2–5 |
@@ -207,8 +209,9 @@ This index catalogs all knowledge base files in this repository. Each entry list
 | 3 | FONT_NUMBER_MILD for Tight Vertical Spaces (font size hierarchy, approximate heights table) |
 | 4 | Partial Edit Failure — "Undefined Symbol" Build Error (diagnostic and prevention) |
 | 5 | Dual Independent X-Column Strategy (different row positions at different x spreads) |
+| 6 | DST-Proof "Today" Boundary for Activity History (what fails, ClockTime.dst bug, Application.Storage minimum-offset solution) |
 
-**Key facts:** `UserProfile.getHeartRateZones()` requires `UserProfile` permission. Zone colors: Z1=LT_GRAY, Z2=BLUE, Z3=GREEN, Z4=ORANGE, Z5=RED. Negative y strips font ascent padding. `FONT_NUMBER_MILD` ≈ 45px; `FONT_NUMBER_MEDIUM` ≈ 60px. Store HR zone array in local variable before null-checking to avoid static analyzer warning.
+**Key facts:** `UserProfile.getHeartRateZones()` requires `UserProfile` permission. Zone colors: Z1=LT_GRAY, Z2=BLUE, Z3=GREEN, Z4=ORANGE, Z5=RED. Negative y strips font ascent padding. `FONT_NUMBER_MILD` ≈ 45px; `FONT_NUMBER_MEDIUM` ≈ 60px. Store HR zone array in local variable before null-checking to avoid static analyzer warning. `ClockTime.dst` is always 0 on real devices (firmware bug) — never use it. DST-safe "today" boundary: persist minimum `timeZoneOffset` in `Application.Storage`; use for day-number comparison via integer division of UTC epoch.
 
 ---
 

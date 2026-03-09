@@ -16,6 +16,7 @@ This document captures new lessons discovered during TimerHRCalories development
 3. [FONT_NUMBER_MILD for Tight Vertical Spaces](#3-font_number_mild-for-tight-vertical-spaces)
 4. [Partial Edit Failure — "Undefined Symbol" Build Error](#4-partial-edit-failure--undefined-symbol-build-error)
 5. [Dual Independent X-Column Strategy](#5-dual-independent-x-column-strategy)
+6. [DST-Proof "Today" Boundary for Activity History](#6-dst-proof-today-boundary-for-activity-history)
 
 ---
 
@@ -245,6 +246,130 @@ Keep inner column content within the central 77% of each slot (avoid extreme top
 
 ---
 
+## 6. DST-Proof "Today" Boundary for Activity History
+
+### Context
+
+The TimerHRCalories field tracks **total recorded activity time today** using `UserProfile.getUserActivityHistory()`. Each `UserActivity` entry has a `startTime` (`Time.Moment`) stored as UTC. To filter for "today only", a boundary representing local midnight must be computed and compared against each activity's UTC timestamp.
+
+This sounds simple but has multiple pitfalls, all confirmed by real-device testing.
+
+### What Does NOT Work
+
+#### `Time.today()`
+Despite appearing correct most days, `Time.today()` fails on the night of DST spring-forward. A late-evening activity (e.g. 11:29pm CST = 05:29 UTC next day) sits after the new CDT midnight boundary (05:00 UTC) and is incorrectly included as "today".
+
+#### `Gregorian.moment()` with local date components
+The SDK documentation states: **"Each option value is assumed to be in the UTC time zone."** Passing local date/time components to `Gregorian.moment()` produces a UTC-midnight boundary, which is wrong — it includes even more previous-day activities than `Time.today()`.
+
+#### `Gregorian.info(Time.now()) + subtract seconds-since-midnight`
+This correctly computes local midnight on normal days but has the same DST spring-forward failure as `Time.today()` — the computed boundary is in the new timezone, while the activity was recorded in the old one.
+
+#### `Gregorian.localMoment(location, activity.startTime)`
+The correct API for this problem in theory — it maps a UTC timestamp to the local calendar date using historical DST rules. However it requires a `Position.Location`, and for indoor activities (strength, treadmill, etc.) `Activity.Info.currentLocation` is always null. Cannot be relied upon.
+
+#### `ClockTime.dst`
+**This field is always 0 on real Garmin devices — a longstanding firmware bug confirmed in multiple Garmin developer forum threads.** It works correctly in the simulator only. Garmin themselves have said they intend to deprecate it. Do not use `ClockTime.dst` for any logic on real hardware.
+
+### What Works: Application.Storage Minimum Offset
+
+`System.getClockTime().timeZoneOffset` correctly reflects the current combined UTC offset in seconds — including DST when active (e.g. CDT = -18000, CST = -21600). This value alone is insufficient because it changes with DST.
+
+The key insight: **standard time is always more negative (or less positive) than DST time** — clocks spring forward, meaning the offset increases by 3600 when DST activates. So the minimum `timeZoneOffset` observed across all runs is always the standard-time (base) offset.
+
+By persisting this minimum in `Application.Storage`, it is available from the first compute cycle on every future run, regardless of whether DST is currently active:
+
+```monkeyc
+private function sumTodayActivitySecs() as Number {
+    var currentOffset = System.getClockTime().timeZoneOffset;
+
+    // Persist the minimum (most-negative = standard-time) offset seen across runs.
+    var storage = Application.Storage;
+    var stored = storage.getValue("baseTzOffset");
+    var baseOffset;
+    if (stored == null || currentOffset < stored) {
+        storage.setValue("baseTzOffset", currentOffset);
+        baseOffset = currentOffset;
+    } else {
+        baseOffset = stored as Number;
+    }
+
+    // Convert UTC epoch values to local day numbers by shifting by base offset.
+    // Integer division by 86400 gives the day bucket; equal buckets = same local day.
+    var todayDay = (Time.now().value() + baseOffset) / 86400;
+
+    var total = 0;
+    var iter  = UserProfile.getUserActivityHistory();
+    var entry = iter.next();
+    while (entry != null) {
+        var st  = entry.startTime;
+        var dur = entry.duration;
+        if (st != null && dur != null) {
+            var actDay = (st.value() + baseOffset) / 86400;
+            if (actDay == todayDay) {
+                total = total + dur.value();
+            }
+        }
+        entry = iter.next();
+    }
+    return total;
+}
+```
+
+**Why this correctly handles DST spring-forward:**
+- 11:29pm CST activity → UTC 05:29 → `(05:29_epoch + (-21600)) / 86400` = yesterday's day number ✓
+- Current time CDT → UTC 20:00 → `(20:00_epoch + (-21600)) / 86400` = today's day number ✓
+- Different day numbers → activity excluded ✓
+
+### Bootstrap Caveat
+
+If the app is first installed **during DST** (summer), `Application.Storage` has no value yet. On the first run, `stored == null` so `baseOffset` is set to the current DST offset (e.g. -18000 CDT). The spring-forward bug will persist until the following winter when the standard-time offset (-21600) is observed and stored.
+
+**For personal/regional use:** seed `Application.Storage` with the known standard-time offset in `initialize()` on first install, then remove the seed before public release:
+
+```monkeyc
+// In initialize() — seed for US Central Standard Time.
+// Remove before public release; other timezones self-calibrate after first winter.
+if (Application.Storage.getValue("baseTzOffset") == null) {
+    Application.Storage.setValue("baseTzOffset", -21600);
+}
+```
+
+**For public release:** omit the seed. New users installing during DST will experience the spring-forward bug once, during their first year, then the stored minimum self-corrects permanently.
+
+### Requires `Application` Import
+
+```monkeyc
+import Toybox.Application;
+```
+
+`Application.Storage` requires no manifest permission — `"Storage"` is not a valid permission ID and adding it causes a build error. The storage is available without any permission declaration.
+
+### Active Minutes — Full Architecture
+
+The complete implementation combines the history iterator with the live timer to avoid double-counting:
+
+- `getUserActivityHistory()` returns only **completed and saved** activities — the current in-progress activity is not included
+- `Activity.Info.timerTime` provides the current activity's elapsed milliseconds
+- Sum = `(_historicalActiveSecs + currentSecs) / 60`
+
+The history sum is expensive (iterates all saved activities), so it is refreshed every 60 `compute()` cycles (~60 seconds) using a counter. The current timer value is read every cycle from `info.timerTime`.
+
+```monkeyc
+_historyCounter = _historyCounter + 1;
+if (_historyCounter >= 60) {
+    _historyCounter = 0;
+    _historicalActiveSecs = sumTodayActivitySecs();
+}
+var timerVal = _timerMs;
+var currentSecs = (timerVal != null) ? (timerVal / 1000).toNumber() : 0;
+_dailyActMins = (_historicalActiveSecs + currentSecs) / 60;
+```
+
+Initialise `_historyCounter = 60` so the first `compute()` call triggers an immediate history refresh rather than waiting 60 cycles.
+
+---
+
 ## Related Knowledge Base Documents
 
 - `garmin_connectiq_knowledge_base.md` — `UserProfile` API, `Activity.Info` fields, full permission table
@@ -254,4 +379,4 @@ Keep inner column content within the central 77% of each slot (avoid extreme top
 
 ---
 
-*Last updated: February 2026 — SDK 8.4.1*
+*Last updated: March 2026 — SDK 8.4.1*
