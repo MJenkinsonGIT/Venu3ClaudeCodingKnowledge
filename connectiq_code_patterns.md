@@ -15,6 +15,7 @@
 6. [Common Patterns for Data Fields](#6-common-patterns-for-data-fields)
 7. [Best Practices](#7-best-practices)
 8. [Code Organization](#8-code-organization)
+9. [getInitialView — Correct Return Type Syntax](#9-getinitialview--correct-return-type-syntax)
 
 ---
 
@@ -619,6 +620,49 @@ class MyView extends WatchUi.DataField {
 
 ---
 
+## 9. getInitialView — Correct Return Type Syntax
+
+The `getInitialView()` method in `AppBase` subclasses requires a specific return type
+syntax that the Monkey C compiler enforces strictly. The `Array<...>` generic form
+looks valid but causes a "Cannot override with a different return type" build error.
+
+### Confirmed working signature (SDK 8.4.1, Venu 3)
+
+```monkeyc
+// DataField or widget with no input delegate:
+function getInitialView() as [WatchUi.Views] or [WatchUi.Views, WatchUi.InputDelegates] {
+    return [new MyView()];
+}
+
+// Watch app with a BehaviorDelegate:
+function getInitialView() as [WatchUi.Views] or [WatchUi.Views, WatchUi.InputDelegates] {
+    var view = new MyView();
+    var delegate = new MyDelegate(view);
+    return [view, delegate];
+}
+```
+
+### Rules
+- Use bracket notation `[WatchUi.Views] or [WatchUi.Views, WatchUi.InputDelegates]` — not `Array<...>`
+- Do **not** add `public` — the base class method is package-scoped
+- Do **not** add `?` (nullable) to the return type
+- Do **not** cast the return value — return the bare array literal
+- The compiler matches the signature against `AppBase.getInitialView` exactly; any deviation causes a build error
+
+### What fails
+
+```monkeyc
+// WRONG — Array<> form causes "Cannot override with a different return type"
+public function getInitialView() as Array<WatchUi.Views or WatchUi.InputDelegates>? {
+    return [new MyView()] as Array<WatchUi.Views or WatchUi.InputDelegates>;
+}
+```
+
+Confirmed by compile error on SDK 8.4.1. The correct form matches the official
+SDK template at `[SDK root]\bin\templates\datafield-simple\source\App.mc`.
+
+---
+
 ## Related Knowledge Base Documents
 
 - `garmin_connectiq_knowledge_base.md` — Full API reference, device specs, permission table
@@ -628,4 +672,4 @@ class MyView extends WatchUi.DataField {
 
 ---
 
-*Last updated: March 2026 — SDK 8.4.1*
+*Last updated: March 2026 — SDK 8.4.1 — §9 added: getInitialView return type (compiler-confirmed)*

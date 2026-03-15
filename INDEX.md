@@ -116,8 +116,9 @@ This index catalogs all knowledge base files in this repository. Each entry list
 | 6 | Common Patterns for Data Fields (CircularBuffer, AlgorithmManager, null handling, indoor step/distance baseline, change-detection redraw) |
 | 7 | Best Practices (capability checking, layout caching, null safety, fillPolygon warning) |
 | 8 | Code Organization (file structure, class member order) |
+| 9 | getInitialView — Correct Return Type Syntax (bracket notation, no public, no ?, no cast) |
 
-**Key facts:** `:period` for HR history = sample count, not seconds. `SimpleDataField` for single values; `DataField` for custom layouts + automatic full-screen view. Indoor step/distance requires `ActivityMonitor` with baseline captured at `onTimerStart()`. Boolean members initialized to `false` trigger static analyzer warnings on `if (member)` — initialize to `true` when the first state should be active.
+**Key facts:** `:period` for HR history = sample count, not seconds. `SimpleDataField` for single values; `DataField` for custom layouts + automatic full-screen view. Indoor step/distance requires `ActivityMonitor` with baseline captured at `onTimerStart()`. Boolean members initialized to `false` trigger static analyzer warnings on `if (member)` — initialize to `true` when the first state should be active. `getInitialView()` must use `[WatchUi.Views] or [WatchUi.Views, WatchUi.InputDelegates]` bracket notation — `Array<...>` form causes a build error.
 
 ---
 
@@ -287,6 +288,36 @@ This index catalogs all knowledge base files in this repository. Each entry list
 
 ---
 
+### 13. `stimtracker_development_lessons.md`
+**Project:** StimTracker watch app (caffeine tracking with decay model, profiles, history, settings)
+**App type:** Watch App (768 KB) with Glance
+
+| § | Section |
+|---|---|
+| 1 | Delegate/view disconnect — always pass the view to the delegate |
+| 2 | Local variable type annotations cause build error |
+| 3 | `onMenu()` fires on long-press of the back button |
+| 4 | Circle-clipped horizontal bar technique |
+| 5 | Confirmed layout constants for secondary screens (FONT_XTINY) |
+| 6 | Word-wrap helper for long profile names |
+| 7 | `deleteProfile()` does not affect log history |
+| 8 | Settings delegate: swipes scroll, back button exits |
+| 9 | Profile delete flow: correct pop count after nested confirmation |
+| 10 | Glance decay loop must read yesterday's log |
+| 11 | Hitbox bug: never store a live-mutating list in the delegate |
+| 12 | Ghost-view bug: delegate must receive the displayed view |
+| 13 | "Hold to edit" hint label pattern |
+| 14 | HH:MM swipe picker template |
+| 15 | Number input widget template (±buttons + centre tap → TextPicker) |
+| 16 | Hitbox alignment for numeric input widgets |
+| 17 | ValueEditView title word-wrap |
+| 18 | Compiler warning patterns to avoid |
+| 19 | FONT_NUMBER_MEDIUM rendering offset (visual top ≠ y coordinate) |
+
+**Key facts:** Always pass the constructed view to the delegate — never let the delegate construct its own view. `onMenu()` = long-press back button. `FONT_NUMBER_MEDIUM` without VCENTER places y at bounding-box top, not visual glyph top — visual top appears ~25px below the specified y value (measured: y=219 → visual top at y=244, visual bottom at y=303). Circle-clipped bars use arc radius 210, not screen radius 227. Hitbox bottom should be flush with Save button top. Swipe UP/DOWN scroll list screens; back button is the only exit.
+
+---
+
 ## Document Relationships
 
 ```
@@ -306,7 +337,8 @@ garmin_connectiq_knowledge_base.md  ← Hub: referenced by all other files
         ├── hrv_logger_development_lessons.md    (widget — sensor lifecycle)
         ├── skin_temp_widget_development_lessons.md  (widget — glance, storage)
         │
-        └── customhrv_development_lessons.md    (watch app — most complex)
+        ├── customhrv_development_lessons.md    (watch app — most complex)
+        └── stimtracker_development_lessons.md  (watch app — StimTracker patterns)
 ```
 
 ---
