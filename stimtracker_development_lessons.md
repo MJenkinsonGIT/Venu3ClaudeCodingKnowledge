@@ -32,6 +32,7 @@ This file captures lessons learned during the development of StimTracker — a c
 | 17 | ValueEditView title word-wrap |
 | 18 | Compiler warning patterns to avoid |
 | 19 | FONT_NUMBER_MEDIUM rendering offset (y is top of bounding box, not visual top) |
+| 20 | Sort order — array-position reordering pattern |
 
 ---
 
@@ -500,6 +501,79 @@ When `TEXT_JUSTIFY_VCENTER` is also passed, the y coordinate becomes the visual 
 **FONT_XTINY with TEXT_JUSTIFY_VCENTER** behaves as expected — y is the visual centre. No correction needed for label text drawn with both `TEXT_JUSTIFY_CENTER | TEXT_JUSTIFY_VCENTER`.
 
 **Rule of thumb:** When positioning `FONT_NUMBER_MEDIUM` without VCENTER, subtract ~25px from where you want the visual top to appear to get the code y value to use. Verify visually in the simulator with pixel ruler.
+
+**Confirmed across screens:** The manual pixel compensation applied throughout StimTracker has been device-verified as correct. The following screens all use large number fonts without VCENTER and have been confirmed to have no visible misalignment between glyphs and hitboxes on the Venu 3:
+
+| Screen | Font |
+|--------|------|
+| ProfileEditView (caffeine number) | `FONT_NUMBER_MEDIUM` |
+| ValueEditView (Settings value) | `FONT_NUMBER_HOT` |
+| AdjustTimeView (time columns) | `FONT_NUMBER_MILD` |
+| MainView (current mg display) | `FONT_NUMBER_HOT` |
+
+Each of these uses a different font size, so the exact offset in pixels varies — but the pattern (y is bounding-box top, visual glyph appears lower) holds for all of them.
+
+---
+
+## 20. Sort Order — Array-Position Reordering Pattern
+
+Sort order for stimulant profiles is stored as **array position**, not as a dedicated field on each profile. Changing a profile's order means a remove-and-insert operation on the array itself.
+
+### Storage function
+
+```monkeyc
+static function reorderProfile(fromIdx as Number, toIdx as Number) as Array<Dictionary> {
+    // Guards: no-op if indices equal or out of bounds
+    // 1. Remove item at fromIdx
+    // 2. Build 'without' array
+    // 3. Insert at toIdx position
+    // 4. Save and return updated array
+}
+```
+
+No migration is needed for existing profiles — the order they happen to be stored in simply becomes their initial sort order.
+
+### ProfileEditView widget
+
+`ProfileEditView` receives `sortOrder as Number` (1-based) and `totalProfiles as Number` in its constructor. It exposes a tap-to-activate swipe widget:
+
+- Tap anywhere in y=120–200 → `_sortOrderSelected = true`; arrows turn green; dark highlight box appears behind the number
+- Swipe UP → increment (clamped at `_totalProfiles`)
+- Swipe DOWN → decrement (clamped at 1)
+- Both swipe handlers always return `true` to consume the event — the back button is the only cancel
+- Highlight box: `fillRoundedRectangle(CX-26, 150, 52, 46, 6)` — 46px height was arrived at through simulator tuning (initial 30px was too short for the glyph)
+
+### Save sequence
+
+`_save()` must call `reorderProfile(oldIdx, newIdx)` **before** `updateProfile(id, name, caffMg)`. This is safe because `updateProfile` finds the profile by ID, not by index — so it locates the correct entry even after the array has been reshuffled.
+
+```monkeyc
+private function _save() as Void {
+    var oldIdx = _view._originalSortOrder - 1;
+    var newIdx = _view._sortOrder - 1;
+    if (oldIdx != newIdx) {
+        StimTrackerStorage.reorderProfile(oldIdx, newIdx);
+    }
+    var updated = StimTrackerStorage.updateProfile(id, _view._name, _view._caffMg);
+    // ... refresh views
+}
+```
+
+### Callers
+
+Both entry points to `ProfileEditView` (from `PreviewDelegate.onMenu` and `LogStimulantDelegate.onHold`) must search the live profiles array for the matching profile ID to determine the current index, then pass `idx + 1` and `profiles.size()` to the constructor. Do not pass a stale index stored at an earlier point.
+
+### Sort order display on Log Stimulant screen
+
+Each real profile row on the Log Stimulant screen shows its sort order number at the far left of the caffeine mg line (x=50, `TEXT_JUSTIFY_LEFT`, same y and font as the mg text). This gives the user a visual reference when deciding what number to set in the sort order widget.
+
+```monkeyc
+dc.drawText(50, y + 55, Graphics.FONT_XTINY,
+    rowIdx.toString(),
+    Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER);
+```
+
+`rowIdx` here is the loop variable directly (1-based profile rows start at rowIdx=1).
 
 ---
 

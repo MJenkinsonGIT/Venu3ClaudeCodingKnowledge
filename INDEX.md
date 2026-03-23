@@ -313,8 +313,9 @@ This index catalogs all knowledge base files in this repository. Each entry list
 | 17 | ValueEditView title word-wrap |
 | 18 | Compiler warning patterns to avoid |
 | 19 | FONT_NUMBER_MEDIUM rendering offset (visual top ≠ y coordinate) |
+| 20 | Sort order — array-position reordering pattern |
 
-**Key facts:** Always pass the constructed view to the delegate — never let the delegate construct its own view. `onMenu()` = long-press back button. `FONT_NUMBER_MEDIUM` without VCENTER places y at bounding-box top, not visual glyph top — visual top appears ~25px below the specified y value (measured: y=219 → visual top at y=244, visual bottom at y=303). Circle-clipped bars use arc radius 210, not screen radius 227. Hitbox bottom should be flush with Save button top. Swipe UP/DOWN scroll list screens; back button is the only exit.
+**Key facts:** Always pass the constructed view to the delegate — never let the delegate construct its own view. `onMenu()` = long-press back button. `FONT_NUMBER_MEDIUM` without VCENTER places y at bounding-box top, not visual glyph top — visual top appears ~25px below the specified y value (measured: y=219 → visual top at y=244, visual bottom at y=303). Circle-clipped bars use arc radius 210, not screen radius 227. Hitbox bottom should be flush with Save button top. Swipe UP/DOWN scroll list screens; back button is the only exit. Sort order is stored as array position — reorder via remove-and-insert; always call `reorderProfile()` before `updateProfile()` in the save sequence.
 
 ---
 
