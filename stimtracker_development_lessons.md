@@ -33,6 +33,9 @@ This file captures lessons learned during the development of StimTracker — a c
 | 18 | Compiler warning patterns to avoid |
 | 19 | FONT_NUMBER_MEDIUM rendering offset (y is top of bounding box, not visual top) |
 | 20 | Sort order — array-position reordering pattern |
+| 21 | Application.Storage performance — pre-load events for batch calculations |
+| 22 | Bitmap resource caching — never call loadResource in onUpdate |
+| 23 | Complication live updates — FaceIt does not subscribe to change callbacks |
 
 ---
 
@@ -577,9 +580,131 @@ dc.drawText(50, y + 55, Graphics.FONT_XTINY,
 
 ---
 
+## 21. Application.Storage Performance — Pre-Load Events for Batch Calculations
+
+**Problem:** `Application.Storage.getValue()` is the main I/O operation on Connect IQ. Its per-call cost is not documented but is empirically significant at scale. In StimTracker, the core PK function `calcMgAt()` reads the day index (1 Storage read) plus each day’s log (up to 30 reads) every time it is called. When the bisection peak-finder called `calcMgAt` 50–100 times per frame, this produced **1,500–3,100 Storage reads per onUpdate()** — enough to cause a visible 2+ second freeze.
+
+Even outside the bisection, the main screen called `calcMgAt` 4 times per frame (1× current + 3× trend), producing ~124 Storage reads per frame for data that hadn’t changed between calls.
+
+**Fix: Pre-load once, pass through.** Load all events from Storage once into a flat array at the start of a computation batch, then pass that array into every evaluation function. The per-evaluation functions do the same PK math but skip Storage entirely.
+
+```monkeyc
+// Load once (~31 Storage reads)
+static function _loadAllEvents() as Array {
+    var dateStrings = loadDayIndex();
+    var allEvents = [] as Array;
+    for (var d = 0; d < dateStrings.size(); d++) {
+        var dayLog = loadDayLog(dateStrings[d] as String);
+        for (var i = 0; i < dayLog.size(); i++) {
+            allEvents.add(dayLog[i]);
+        }
+    }
+    return allEvents;
+}
+
+// Use in batch: zero Storage reads per call
+static function _calcMgAtFromEvents(events as Array, asOfSec as Number,
+                                    halfLifeHrs as Float, absorptionModel as Number,
+                                    standardFoodState as Number,
+                                    ke as Float, ln2 as Float) as Float {
+    // Same PK math as calcMgAt, iterating events array instead of reading Storage
+}
+```
+
+**Impact (StimTracker):**
+
+| Scenario | Before (Storage reads/frame) | After |
+|---|---|---|
+| Main screen, no recording | ~124 | ~31 |
+| Main screen, active recording | ~3,200 | ~31 |
+| Preview screen (bisection) | ~1,500–3,100 | ~31 |
+
+**General principle:** If you call a function that reads Storage multiple times within a single computation, and the underlying data cannot change between calls, pre-load the data once and pass it through. This applies to any iterative algorithm (bisection, search, trend calculation) where the same Storage keys are re-read on every iteration.
+
+### Companion optimization: combine related callers
+
+When two public functions both need the same Storage data, provide a combined function that loads once for both. In StimTracker, `calcCurrentMg()` and `calcTrendLevel()` both read the same events — a combined `calcTrendAndCurrent()` loads events once and evaluates all 4 time points (now, +60s, +900s for trend, now for current) in one pass.
+
+### Rate-limiting time-dependent recomputation
+
+When a cached value is time-dependent (e.g., sleep threshold during an active recording where the projected finish drifts), but the displayed precision is coarser than the recomputation rate, use an in-memory cache with a TTL:
+
+```monkeyc
+static var _recCacheSec = 0;
+static var _recCacheVal = 0;
+
+static function getCachedValue(settings as Dictionary) as Number {
+    var nowSec = Time.now().value().toNumber();
+    if (_recCacheSec > 0 && (nowSec - _recCacheSec) < 60) {
+        return _recCacheVal;
+    }
+    var result = _expensiveComputation(settings);
+    _recCacheSec = nowSec;
+    _recCacheVal = result;
+    return result;
+}
+```
+
+Display resolution of 1 minute means a 60-second TTL introduces at most one frame of visible delay on the minute boundary. Invalidate the cache (set `_recCacheSec = 0`) at every mutation point.
+
+---
+
+## 22. Bitmap Resource Caching — Never Call loadResource in onUpdate
+
+**Problem:** `WatchUi.loadResource()` loads a bitmap from flash storage every time it is called. If called inside `onUpdate()`, the same bitmap is reloaded on every frame render. This is wasteful and measurable on device.
+
+**Fix:** Load bitmap resources once in `initialize()` and store them as member variables. Reference the member in `onUpdate()` and any drawing helpers.
+
+```monkeyc
+// CORRECT — load once
+var _gearBmp as WatchUi.BitmapResource;
+var _oopsBmp as WatchUi.BitmapResource;
+
+function initialize(settings as Dictionary) {
+    View.initialize();
+    _gearBmp = WatchUi.loadResource(Rez.Drawables.GearIcon) as WatchUi.BitmapResource;
+    _oopsBmp = WatchUi.loadResource(Rez.Drawables.OopsHeart) as WatchUi.BitmapResource;
+}
+
+function onUpdate(dc as Graphics.Dc) as Void {
+    dc.drawBitmap(x, y, _gearBmp);  // member reference, no I/O
+    dc.drawBitmap(x, y, _oopsBmp);  // member reference, no I/O
+}
+
+// BROKEN — reloads from flash every frame
+private function _drawOopsButton(dc as Graphics.Dc) as Void {
+    var heart = WatchUi.loadResource(Rez.Drawables.OopsHeart);  // flash I/O every frame!
+    dc.drawBitmap(CX - 26, 26, heart);
+}
+```
+
+This applies to all bitmap resources: icons, buttons, decorations. If you see `loadResource` inside any function that runs per-frame (`onUpdate`, `onShow`, drawing helpers called from `onUpdate`), move it to `initialize()`.
+
+---
+
+## 23. Complication Live Updates — FaceIt Does Not Subscribe to Change Callbacks
+
+**Problem:** StimTracker publishes a complication via `Complications.updateComplication()` from a background service every 5 minutes. The push succeeds without error. However, the FaceIt watch face only displays the updated value after a screen transition (leaving and returning to the watch face). It does not update in real time while the face is displayed, even after hours.
+
+**Root cause:** The Connect IQ complication system is publish/subscribe. For a watch face to receive live updates, it must:
+
+1. Call `Complications.registerComplicationChangeCallback(method(:onChanged))`
+2. Call `Complications.subscribeToUpdates(complicationId)`
+3. Call `WatchUi.requestUpdate()` inside the callback to trigger a redraw
+
+FaceIt reads the complication value when the watch face renders (on transitions), but **does not subscribe to live change callbacks**. This is a confirmed FaceIt limitation reported by multiple CIQ developers on the Garmin forums (thread: “Face It and CIQ Complications”, Nov 2023 — developer jim_m_58 confirmed his own watch faces update in real time but FaceIt does not).
+
+**Nothing on the publisher side can fix this.** The `updateComplication()` call correctly writes the value to the system’s complication store. Whether and when a subscriber redraws is entirely the subscriber’s responsibility.
+
+**The complications.xml and generated JSON are correct** — the JSON is auto-generated by the compiler from the XML and has no configurable fields that affect subscription behavior.
+
+**Path forward:** A custom CIQ watch face that implements the full subscribe + callback + requestUpdate chain will receive live complication updates within seconds of each background push. This is the only reliable path for real-time complication display.
+
+---
+
 ## Related Knowledge Base Documents
 
-- `garmin_connectiq_knowledge_base.md` — core SDK reference; §5 covers drawText, fonts, text justification
+- `garmin_connectiq_knowledge_base.md` — core SDK reference; §5 covers drawText, fonts, text justification; §13 covers performance
 - `customhrv_development_lessons.md` — §1–2: confirmed swipe/tap mapping; §10: unicode arrow rendering
 - `monkeyc_analyzer_unreachable_statement_guide.md` — full detail on static analyser warnings (see §18)
 - `skin_temp_widget_development_lessons.md` — §21: glance annotation pattern used in StimTracker

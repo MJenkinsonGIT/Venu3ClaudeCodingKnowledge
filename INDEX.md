@@ -29,6 +29,9 @@ This index catalogs all knowledge base files in this repository. Each entry list
 | `(:glance)` annotation on watch-app with glance view | `skin_temp_widget_development_lessons.md` §21 |
 | Persistent storage across sessions | `skin_temp_widget_development_lessons.md` §19–20 |
 | fillPolygon vs fillRectangle performance | `skin_temp_widget_development_lessons.md` §15 |
+| Application.Storage batch read optimization | `stimtracker_development_lessons.md` §21 |
+| Bitmap loadResource caching pattern | `stimtracker_development_lessons.md` §22 |
+| FaceIt complication not updating live | `stimtracker_development_lessons.md` §23 |
 | Bezel-safe positioning values (tested) | `consolidated_field_development_lessons.md` §9 |
 | Negative y-coordinates / font ascent padding | `timerhr_field_development_lessons.md` §2 |
 
@@ -57,9 +60,9 @@ This index catalogs all knowledge base files in this repository. Each entry list
 | 14 | Debugging and Testing |
 | 15 | Build and Deployment |
 | 16 | Key SDK Resources |
-| 17 | Common Gotchas (12 quick-reference pitfalls) |
+| 17 | Common Gotchas (13 quick-reference pitfalls) |
 
-**Key facts:** Memory limits (Data Field 256 KB, Watch App 768 KB, Widget 64 KB). Valid permission IDs listed. `onSelect()` ≠ tap on touchscreen. Swipe UP = `onNextPage()`.
+**Key facts:** Memory limits (Data Field 256 KB, Watch App 768 KB, Widget 64 KB). Valid permission IDs listed. `onSelect()` ≠ tap on touchscreen. Swipe UP = `onNextPage()`. `Application.Storage.getValue()` has significant per-call overhead — pre-load for batch use. Never call `loadResource()` in `onUpdate()`. FaceIt doesn’t subscribe to complication change callbacks.
 
 ---
 
@@ -314,8 +317,11 @@ This index catalogs all knowledge base files in this repository. Each entry list
 | 18 | Compiler warning patterns to avoid |
 | 19 | FONT_NUMBER_MEDIUM rendering offset (visual top ≠ y coordinate) |
 | 20 | Sort order — array-position reordering pattern |
+| 21 | Application.Storage performance — pre-load events for batch calculations |
+| 22 | Bitmap resource caching — never call loadResource in onUpdate |
+| 23 | Complication live updates — FaceIt does not subscribe to change callbacks |
 
-**Key facts:** Always pass the constructed view to the delegate — never let the delegate construct its own view. `onMenu()` = long-press back button. `FONT_NUMBER_MEDIUM` without VCENTER places y at bounding-box top, not visual glyph top — visual top appears ~25px below the specified y value (measured: y=219 → visual top at y=244, visual bottom at y=303). Circle-clipped bars use arc radius 210, not screen radius 227. Hitbox bottom should be flush with Save button top. Swipe UP/DOWN scroll list screens; back button is the only exit. Sort order is stored as array position — reorder via remove-and-insert; always call `reorderProfile()` before `updateProfile()` in the save sequence.
+**Key facts:** Always pass the constructed view to the delegate — never let the delegate construct its own view. `onMenu()` = long-press back button. `FONT_NUMBER_MEDIUM` without VCENTER places y at bounding-box top, not visual glyph top — visual top appears ~25px below the specified y value (measured: y=219 → visual top at y=244, visual bottom at y=303). Circle-clipped bars use arc radius 210, not screen radius 227. Hitbox bottom should be flush with Save button top. Swipe UP/DOWN scroll list screens; back button is the only exit. Sort order is stored as array position — reorder via remove-and-insert; always call `reorderProfile()` before `updateProfile()` in the save sequence. `Application.Storage.getValue()` has significant per-call overhead — if calling a Storage-reading function N times in a batch (bisection, trend calc), pre-load data once into an array and pass it through (reduced StimTracker from ~3,100 to ~31 Storage reads/frame). Never call `WatchUi.loadResource()` inside `onUpdate()` — cache bitmaps in `initialize()`. FaceIt does not subscribe to complication change callbacks — published values only refresh on screen transitions; a custom CIQ watch face is the only path to real-time complication updates.
 
 ---
 

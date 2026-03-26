@@ -572,6 +572,9 @@ class CircularBuffer {
 - `const` for large lookup tables to reduce memory pressure
 - Avoid creating large objects in `onUpdate()`
 - Disable sensors when not needed
+- **`Application.Storage.getValue()` has significant per-call overhead** — if calling a Storage-reading function N times in a single computation batch (bisection, trend, any iterative algorithm), pre-load the data once into an array and pass it through. See `stimtracker_development_lessons.md` §21 for the full pattern and impact measurements.
+- **Never call `WatchUi.loadResource()` inside `onUpdate()`** — it reloads the bitmap from flash on every frame. Cache bitmaps in `initialize()` as member variables. See `stimtracker_development_lessons.md` §22.
+- **Cache expensive computation results in member variables** when the inputs don’t change between redraws. Recompute only when input-changing methods are called (e.g., a `setTimings()` method), not on every `onUpdate()` frame.
 
 ---
 
@@ -641,9 +644,10 @@ if ((Toybox has :SensorHistory) && (SensorHistory has :getHeartRateHistory)) {
 10. **Swipe UP = `onNextPage()`, Swipe DOWN = `onPreviousPage()`** on Venu 3 — counterintuitive
 11. **`onSelect()` does not fire for screen taps** — use `onTap()` on touchscreen devices
 12. **Monkey C static analyzer traces from `initialize()`** — branches on member variables initialized to a fixed value may be flagged as unreachable; see `monkeyc_analyzer_unreachable_statement_guide.md`
+13. **FaceIt does not subscribe to complication change callbacks** — published values only refresh on screen transitions; a custom CIQ watch face is required for real-time complication updates. See `stimtracker_development_lessons.md` §23.
 
 ---
 
 **End of Knowledge Base**
 
-*Last updated: February 2026 — SDK 8.4.1, API Level 5.2, Garmin Venu 3*
+*Last updated: March 2026 — SDK 8.4.1, API Level 5.2, Garmin Venu 3*
